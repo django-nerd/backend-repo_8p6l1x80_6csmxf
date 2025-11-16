@@ -1,8 +1,13 @@
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import ValidationError
+from typing import Dict
 
-app = FastAPI()
+from database import create_document
+from schemas import ContactMessage, Subscriber
+
+app = FastAPI(title="Marketing Agency API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -64,6 +69,31 @@ def test_database():
     
     return response
 
+@app.post("/api/contact")
+async def submit_contact(message: ContactMessage, request: Request) -> Dict[str, str]:
+    try:
+        # enrich with request metadata
+        ua = request.headers.get("user-agent", "")
+        referer = request.headers.get("referer", None)
+        payload = message.model_copy(update={"user_agent": ua, "page": referer})
+        inserted_id = create_document("contactmessage", payload)
+        return {"status": "ok", "id": inserted_id}
+    except ValidationError as ve:
+        raise HTTPException(status_code=422, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/subscribe")
+async def subscribe(sub: Subscriber, request: Request) -> Dict[str, str]:
+    try:
+        source = request.headers.get("referer", None)
+        payload = sub.model_copy(update={"source": sub.source or source})
+        inserted_id = create_document("subscriber", payload)
+        return {"status": "ok", "id": inserted_id}
+    except ValidationError as ve:
+        raise HTTPException(status_code=422, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
